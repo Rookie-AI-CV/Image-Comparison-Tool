@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Image Viewer</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+            cursor: grab;
+        }
+        body.dragging {
+            cursor: grabbing;
+        }
+        .image-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+        }
+        img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+            transform-origin: center;
+            transition: transform 0.1s ease;
+            user-select: none;
+            -webkit-user-drag: none;
+        }
+        .zoom-info {
+            position: fixed;
+            bottom: 10px;
+            right: 10px;
+            background: rgba(255, 255, 255, 0.8);
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+            pointer-events: none;
+        }
+        .help-text {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            background: rgba(255, 255, 255, 0.8);
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-family: Arial, sans-serif;
+            font-size: 12px;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="image-container">
+        <img id="viewer-image" src="" alt="">
+    </div>
+    <div class="zoom-info">Zoom: 100%</div>
+    <div class="help-text">Mouse wheel: Zoom | Left click + drag: Move | ESC: Close</div>
+    <script>
+        let scale = 1;
+        let isDragging = false;
+        let startX, startY;
+        let translateX = 0;
+        let translateY = 0;
+        const img = document.getElementById('viewer-image');
+        const zoomInfo = document.querySelector('.zoom-info');
+        
+        // Get image source from URL parameters
+        const urlParams = new URLSearchParams(window.location.search);
+        const imageSrc = urlParams.get('src');
+        const imageTitle = urlParams.get('title');
+        
+        if (imageSrc) {
+            img.src = imageSrc;
+            img.alt = imageTitle || '';
+            document.title = imageTitle || 'Image Viewer';
+        }
+        
+        function updateTransform() {
+            img.style.transform = `translate(${translateX}px, ${translateY}px) scale(${scale})`;
+            zoomInfo.textContent = 'Zoom: ' + Math.round(scale * 100) + '%';
+        }
+        
+        function updateZoom(delta) {
+            const oldScale = scale;
+            scale = Math.max(0.1, Math.min(5, scale + delta));
+            
+            // Adjust translation to zoom towards mouse position
+            if (delta > 0) {
+                const scaleFactor = scale / oldScale;
+                translateX = translateX * scaleFactor;
+                translateY = translateY * scaleFactor;
+            }
+            
+            updateTransform();
+        }
+        
+        // Mouse wheel zoom
+        document.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const delta = e.deltaY > 0 ? -0.1 : 0.1;
+            updateZoom(delta);
+        });
+        
+        // Mouse drag
+        document.addEventListener('mousedown', (e) => {
+            if (e.button === 0) { // Left click
+                isDragging = true;
+                document.body.classList.add('dragging');
+                startX = e.clientX - translateX;
+                startY = e.clientY - translateY;
+            }
+        });
+        
+        document.addEventListener('mousemove', (e) => {
+            if (isDragging) {
+                translateX = e.clientX - startX;
+                translateY = e.clientY - startY;
+                updateTransform();
+            }
+        });
+        
+        document.addEventListener('mouseup', () => {
+            isDragging = false;
+            document.body.classList.remove('dragging');
+        });
+        
+        document.addEventListener('mouseleave', () => {
+            isDragging = false;
+            document.body.classList.remove('dragging');
+        });
+        
+        // Close on Escape key
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                window.close();
+            }
+        });
+        
+        // Reset position when image loads
+        img.addEventListener('load', () => {
+            translateX = 0;
+            translateY = 0;
+            scale = 1;
+            updateTransform();
+        });
+    </script>
+</body>
+</html> 
