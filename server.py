@@ -34,21 +34,6 @@ def load_state():
 def index():
     return send_from_directory('.', 'image_comparison.html')
 
-@app.route('/get_absolute_path', methods=['POST'])
-def get_absolute_path():
-    data = request.get_json()
-    relative_path = data.get('path', '')
-    
-    if not relative_path:
-        return jsonify({'error': 'No path provided'}), 400
-    
-    try:
-        # Get the absolute path
-        abs_path = os.path.abspath(relative_path)
-        return jsonify({'path': abs_path})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
 @app.route('/set_directories', methods=['POST'])
 def set_directories():
     global RAW_DIR, LABELED_DIR
@@ -69,17 +54,26 @@ def set_directories():
 @app.route('/get_images')
 def get_images():
     if not RAW_DIR or not LABELED_DIR:
+        print("Directories not set")
         return jsonify([])
     
-    # Get list of files from raw directory
-    raw_files = set(f for f in os.listdir(RAW_DIR) if os.path.isfile(os.path.join(RAW_DIR, f)))
-    # Get list of files from labeled directory
-    labeled_files = set(f for f in os.listdir(LABELED_DIR) if os.path.isfile(os.path.join(LABELED_DIR, f)))
-    
-    # Get intersection of files that exist in both directories
-    common_files = sorted(list(raw_files.intersection(labeled_files)))
-    
-    return jsonify(common_files)
+    try:
+        # Get list of files from raw directory
+        raw_files = set(f for f in os.listdir(RAW_DIR) if os.path.isfile(os.path.join(RAW_DIR, f)))
+        print(f"Raw files found: {len(raw_files)}")
+        
+        # Get list of files from labeled directory
+        labeled_files = set(f for f in os.listdir(LABELED_DIR) if os.path.isfile(os.path.join(LABELED_DIR, f)))
+        print(f"Labeled files found: {len(labeled_files)}")
+        
+        # Get intersection of files that exist in both directories
+        common_files = sorted(list(raw_files.intersection(labeled_files)))
+        print(f"Common files found: {len(common_files)}")
+        
+        return jsonify(common_files)
+    except Exception as e:
+        print(f"Error getting images: {str(e)}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/raw/<path:filename>')
 def serve_raw_image(filename):

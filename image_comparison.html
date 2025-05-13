@@ -376,14 +376,12 @@
         <div class="directory-config">
             <h3>Directory Configuration</h3>
             <div class="directory-input-group">
-                <label for="raw-dir">Raw Images Directory:</label>
-                <input type="text" id="raw-dir" placeholder="Select raw images directory" readonly>
-                <button onclick="selectDirectory('raw-dir')">Browse</button>
+                <label for="rawDir">Raw Images Directory:</label>
+                <input type="text" id="rawDir" placeholder="Enter raw images directory path">
             </div>
             <div class="directory-input-group">
-                <label for="labeled-dir">Labeled Images Directory:</label>
-                <input type="text" id="labeled-dir" placeholder="Select labeled images directory" readonly>
-                <button onclick="selectDirectory('labeled-dir')">Browse</button>
+                <label for="labeledDir">Labeled Images Directory:</label>
+                <input type="text" id="labeledDir" placeholder="Enter labeled images directory path">
             </div>
             <div class="config-controls">
                 <button onclick="setDirectories()">Set Directories</button>
@@ -448,6 +446,7 @@
             <h3>Saved Problematic Images</h3>
             <div class="saved-controls">
                 <button onclick="exportProblematic()">Export List</button>
+                <button onclick="toggleClearAll()" id="clear-all-btn">Clear All</button>
             </div>
             <ul id="saved-images"></ul>
         </div>
@@ -467,74 +466,56 @@
         let imageList = [];
         let savedImages = new Set();
         let savedImageElements = new Map();
-        let rawDir = '';
-        let labeledDir = '';
+        let previousSavedImages = null;  // 用于存储撤销操作前的图片列表
 
-        async function selectDirectory(inputId) {
-            try {
-                // Create a directory picker
-                const dirHandle = await window.showDirectoryPicker();
-                // Get the path
-                const path = dirHandle.name;
-                
-                // Get the absolute path from the server
-                const response = await fetch('/get_absolute_path', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ path: path })
-                });
-                
-                if (response.ok) {
-                    const data = await response.json();
-                    document.getElementById(inputId).value = data.path;
-                } else {
-                    const error = await response.json();
-                    alert(error.error || 'Failed to get absolute path');
-                }
-            } catch (error) {
-                console.error('Error selecting directory:', error);
-                alert('Error selecting directory. Please try again.');
-            }
-        }
-
-        async function setDirectories() {
-            rawDir = document.getElementById('raw-dir').value.trim();
-            labeledDir = document.getElementById('labeled-dir').value.trim();
+        function setDirectories() {
+            const rawDir = document.getElementById('rawDir').value;
+            const labeledDir = document.getElementById('labeledDir').value;
             
             if (!rawDir || !labeledDir) {
-                alert('Please select both directories');
+                alert('Please enter both directory paths');
                 return;
             }
-
-            try {
-                const response = await fetch('/set_directories', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        raw_dir: rawDir,
-                        labeled_dir: labeledDir
-                    })
-                });
-
-                if (response.ok) {
-                    // Fetch the list of images after setting directories
-                    const imageResponse = await fetch('/get_images');
-                    imageList = await imageResponse.json();
-                    document.getElementById('total-images').textContent = imageList.length;
-                    currentIndex = 0;
+            
+            fetch('/set_directories', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    raw_dir: rawDir,
+                    labeled_dir: labeledDir
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    alert('Error setting directories: ' + data.error);
+                    return;
+                }
+                // 获取图片列表
+                return fetch('/get_images');
+            })
+            .then(response => response.json())
+            .then(images => {
+                imageList = images;
+                document.getElementById('total-images').textContent = imageList.length;
+                currentIndex = 0;
+                
+                // 清空问题图片列表，因为切换了目录
+                savedImages.clear();
+                updateSavedList();
+                
+                if (imageList.length > 0) {
                     loadImages();
                 } else {
-                    const error = await response.json();
-                    alert(error.error || 'Failed to set directories');
+                    alert('No matching images found in both directories');
                 }
-            } catch (error) {
-                console.error('Error setting directories:', error);
+            })
+            .catch(error => {
+                console.error('Error:', error);
                 alert('Error setting directories');
-            }
+            });
         }
 
         // Load saved state when the page loads
@@ -544,14 +525,37 @@
                 const state = await response.json();
                 
                 if (state.raw_dir && state.labeled_dir) {
-                    document.getElementById('raw-dir').value = state.raw_dir;
-                    document.getElementById('labeled-dir').value = state.labeled_dir;
-                    await setDirectories();
+                    document.getElementById('rawDir').value = state.raw_dir;
+                    document.getElementById('labeledDir').value = state.labeled_dir;
+                    
+                    // 先设置目录
+                    await fetch('/set_directories', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            raw_dir: state.raw_dir,
+                            labeled_dir: state.labeled_dir
+                        })
+                    });
+                    
+                    // 获取图片列表
+                    const imagesResponse = await fetch('/get_images');
+                    const images = await imagesResponse.json();
+                    imageList = images;
+                    document.getElementById('total-images').textContent = imageList.length;
+                    
+                    // 恢复保存的问题图片列表（只保留在当前图片列表中的图片）
+                    savedImages = new Set(state.saved_images.filter(img => imageList.includes(img)));
+                    updateSavedList();
+                    
+                    // 如果有图片，加载第一张
+                    if (imageList.length > 0) {
+                        currentIndex = 0;
+                        loadImages();
+                    }
                 }
-                
-                // Restore saved images
-                savedImages = new Set(state.saved_images);
-                updateSavedList();
             } catch (error) {
                 console.error('Error loading state:', error);
             }
@@ -568,6 +572,12 @@
                 li.onclick = () => jumpToImage(image);
                 savedList.appendChild(li);
                 savedImageElements.set(image, li);
+            }
+            
+            // 更新清空按钮状态
+            const clearBtn = document.getElementById('clear-all-btn');
+            if (savedImages.size === 0) {
+                clearBtn.textContent = 'Clear All';
             }
         }
 
@@ -969,7 +979,8 @@
                     },
                     body: JSON.stringify({
                         name: name,
-                        path: path
+                        path: path,
+                        saved_images: Array.from(savedImages)  // 保存问题图片列表
                     })
                 });
                 
@@ -998,16 +1009,37 @@
                 
                 const data = await response.json();
                 if (response.ok) {
-                    // Update UI with loaded configuration
-                    document.getElementById('raw-dir').value = data.raw_dir;
-                    document.getElementById('labeled-dir').value = data.labeled_dir;
+                    // 更新目录
+                    document.getElementById('rawDir').value = data.raw_dir;
+                    document.getElementById('labeledDir').value = data.labeled_dir;
                     
-                    // Update saved images
-                    savedImages = new Set(data.saved_images);
+                    // 设置目录
+                    await fetch('/set_directories', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            raw_dir: data.raw_dir,
+                            labeled_dir: data.labeled_dir
+                        })
+                    });
+                    
+                    // 获取图片列表
+                    const imagesResponse = await fetch('/get_images');
+                    const images = await imagesResponse.json();
+                    imageList = images;
+                    document.getElementById('total-images').textContent = imageList.length;
+                    
+                    // 恢复保存的问题图片列表（只保留在当前图片列表中的图片）
+                    savedImages = new Set(data.saved_images.filter(img => imageList.includes(img)));
                     updateSavedList();
                     
-                    // Reload images
-                    await setDirectories();
+                    // 如果有图片，加载第一张
+                    if (imageList.length > 0) {
+                        currentIndex = 0;
+                        loadImages();
+                    }
                     
                     closeLoadConfigDialog();
                 } else {
@@ -1026,6 +1058,30 @@
             notification.style.animation = 'none';
             notification.offsetHeight; // Trigger reflow
             notification.style.animation = 'fadeOut 2s forwards';
+        }
+
+        function toggleClearAll() {
+            const clearBtn = document.getElementById('clear-all-btn');
+            
+            if (clearBtn.textContent === 'Clear All') {
+                // 保存当前列表用于撤销
+                previousSavedImages = new Set(savedImages);
+                // 清空列表
+                savedImages.clear();
+                updateSavedList();
+                // 更新按钮文本
+                clearBtn.textContent = 'Undo Clear';
+                showStatusNotification('All images cleared');
+            } else {
+                // 恢复之前的列表
+                if (previousSavedImages) {
+                    savedImages = new Set(previousSavedImages);
+                    updateSavedList();
+                    showStatusNotification('Clear operation undone');
+                }
+                // 恢复按钮文本
+                clearBtn.textContent = 'Clear All';
+            }
         }
     </script>
 </body>
