@@ -2,6 +2,7 @@ from flask import Flask, send_from_directory, jsonify, request, send_file
 import os
 import json
 from datetime import datetime
+import sys
 
 app = Flask(__name__)
 
@@ -10,6 +11,14 @@ RAW_DIR = ''
 LABELED_DIR = ''
 STATE_FILE = 'app_state.json'
 CONFIG_DIR = 'configs'  # Directory to store configuration files
+
+# Get the base directory for the application
+if getattr(sys, 'frozen', False):
+    # If the application is run as a bundle
+    BASE_DIR = sys._MEIPASS
+else:
+    # If the application is run from a Python interpreter
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Create configs directory if it doesn't exist
 if not os.path.exists(CONFIG_DIR):
@@ -25,14 +34,22 @@ def save_state():
         json.dump(state, f)
 
 def load_state():
-    if os.path.exists(STATE_FILE):
+    try:
         with open(STATE_FILE, 'r') as f:
-            return json.load(f)
-    return None
+            state = json.load(f)
+            return state
+    except:
+        return None
+
+# Initialize saved_images from state
+saved_images = set()
+state = load_state()
+if state:
+    saved_images = set(state.get('saved_images', []))
 
 @app.route('/')
 def index():
-    return send_from_directory('.', 'image_comparison.html')
+    return send_from_directory(BASE_DIR, 'image_comparison.html')
 
 @app.route('/set_directories', methods=['POST'])
 def set_directories():
@@ -225,14 +242,7 @@ def list_configs():
     except Exception as e:
         return jsonify({'error': f'Failed to list configurations: {str(e)}'}), 500
 
-# Initialize saved_images set
-saved_images = set()
-# Load saved state if exists
-saved_state = load_state()
-if saved_state:
-    RAW_DIR = saved_state.get('raw_dir', '')
-    LABELED_DIR = saved_state.get('labeled_dir', '')
-    saved_images = set(saved_state.get('saved_images', []))
-
 if __name__ == '__main__':
-    app.run(debug=True) 
+    # Run in debug mode only when not packaged
+    debug_mode = not getattr(sys, 'frozen', False)
+    app.run(debug=debug_mode) 
