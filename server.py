@@ -75,18 +75,31 @@ def get_images():
         return jsonify([])
     
     try:
-        # Get list of files from raw directory
-        raw_files = set(f for f in os.listdir(RAW_DIR) if os.path.isfile(os.path.join(RAW_DIR, f)))
-        print(f"Raw files found: {len(raw_files)}")
-        
-        # Get list of files from labeled directory
-        labeled_files = set(f for f in os.listdir(LABELED_DIR) if os.path.isfile(os.path.join(LABELED_DIR, f)))
-        print(f"Labeled files found: {len(labeled_files)}")
-        
-        # Get intersection of files that exist in both directories
+        import fnmatch
+
+        # Helper to recursively collect image files
+        def get_image_files(base_dir):
+            image_extensions = ['*.png', '*.jpg', '*.jpeg', '*.bmp', '*.gif', '*.tiff', '*.webp']
+            files = set()
+            for root, dirs, filenames in os.walk(base_dir):
+                for pattern in image_extensions:
+                    for filename in fnmatch.filter(filenames, pattern):
+                        # use relative path from base_dir for cross dir matching
+                        rel_path = os.path.relpath(os.path.join(root, filename), base_dir)
+                        files.add(rel_path)
+            return files
+
+        # Recursively get files from RAW_DIR and LABELED_DIR
+        raw_files = get_image_files(RAW_DIR)
+        print(f"Raw files found (recursive): {len(raw_files)}")
+
+        labeled_files = get_image_files(LABELED_DIR)
+        print(f"Labeled files found (recursive): {len(labeled_files)}")
+
+        # Intersection of files (files with same relative path in both)
         common_files = sorted(list(raw_files.intersection(labeled_files)))
-        print(f"Common files found: {len(common_files)}")
-        
+        print(f"Common files found (recursive): {len(common_files)}")
+
         return jsonify(common_files)
     except Exception as e:
         print(f"Error getting images: {str(e)}")
